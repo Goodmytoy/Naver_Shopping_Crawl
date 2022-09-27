@@ -11,6 +11,8 @@ import time
 
 from bs4 import BeautifulSoup
 from tqdm import tqdm
+from user_agent import generate_user_agent, generate_navigator
+
 
 # overseaTp = "1" : 해외
 class Crawl_Naver_Shopping():
@@ -19,6 +21,11 @@ class Crawl_Naver_Shopping():
             self.frm = "NVSHTTL"
         elif list_type == "가격비교":
             self.frm = "NVSHMDL"
+
+        self.proxies = {
+            "http": "socks5://127.0.0.1:9050",
+            "https": "socks5://127.0.0.1:9050"
+        }
 
     def create_params(self, idx:int, page_size:int, cat_id:str):
         params = {"sort" : "rel",
@@ -151,10 +158,12 @@ class Crawl_Naver_Shopping():
         total_product_infos = defaultdict(list)
 
         for cat_id, cat_level in zip(cat_ids, cat_levels):
+            # time.sleep(5)
             print(cat_level)
             initial_params = self.create_params(idx=1, page_size=40, cat_id=cat_id)
 
-            initial_rq = requests.get(base_url, params = initial_params)
+            fake_user_agent = generate_user_agent(os=('mac', 'linux'), device_type='desktop')
+            initial_rq = requests.get(base_url, params = initial_params, headers = {"User-Agent": fake_user_agent})
 
             initial_rq_json = initial_rq.json()
 
@@ -167,8 +176,10 @@ class Crawl_Naver_Shopping():
 
             max_page, remainder = self.get_max_page(collect_num = temp_collect_num, page_size = 80)
             for pg in tqdm(range(1, max_page+1)):
+                # time.sleep(1)
                 params = self.create_params(idx=pg, page_size=80, cat_id=cat_id)
-                rq = requests.get(base_url, params = params)
+                fake_user_agent = generate_user_agent(os=('mac', 'linux'), device_type='desktop')
+                rq = requests.get(base_url, params = params, headers = {"User-Agent": fake_user_agent})
                 rq_json = rq.json()
 
                 if pg < max_page:
@@ -184,7 +195,8 @@ class Crawl_Naver_Shopping():
                 except:
                     print(rq.url)
                     continue
-
+                with open(f"crawl_pkl/{cat_id}_{pg}.pkl", "wb") as f:
+                    pickle.dump(products_infos, f)
                 total_product_infos = self.merge_dict(total_product_infos, products_infos)
         
         return total_product_infos
