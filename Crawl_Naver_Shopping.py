@@ -18,28 +18,29 @@ from user_agent import generate_user_agent, generate_navigator
 class Crawl_Naver_Shopping():
     def __init__(self, list_type:str = "전체"):
         if list_type == "전체":
-            self.frm = "NVSHTTL"
+            self.productSet = "total"
         elif list_type == "가격비교":
-            self.frm = "NVSHMDL"
+            self.productSet = "model"
 
         self.proxies = {
             "http": "socks5://127.0.0.1:9050",
             "https": "socks5://127.0.0.1:9050"
         }
 
-    def create_params(self, idx:int, page_size:int, cat_id:str):
+        self.headers = {
+            'authority': 'search.shopping.naver.com',
+            'method': 'GET',
+            'logic': 'PART'
+        }
+
+    def create_params(self, idx:int, page_size:int, **kwargs):
         params = {"sort" : "rel",
                   "pagingIndex" : idx,
                   "pagingSize" : page_size,
                   "viewType" : "list",
-                  "productSet" : "model",
-                  "catId" : cat_id,
-                  "deliveryFee" : "",
-                  "deliveryTypeValue" : "",
-                  "frm" : self.frm,
-                  "iq" : "",    
-                  "eq" : "",
-                  "xq" : ""}
+                  "productSet" : self.productSet
+                  }
+        params = dict(params, **kwargs)
         
         return params
 
@@ -150,8 +151,16 @@ class Crawl_Naver_Shopping():
         
         return products_dict
 
+    def create_headers(self, url):
+        headers = deepcopy(self.headers)
+        fake_user_agent = generate_user_agent(os=('mac', 'linux'), device_type='desktop')
+        headers["User-Agent"] = fake_user_agent
+        headers["referer"] = url
+        return headers
+        
 
-    def get_product_infos_in_category(self, cat_ids:list, cat_levels:list, collect_num:int = None, image_save:bool = False):
+
+    def get_product_infos_in_category(self, cat_ids:list, cat_levels:list, collect_num:int = None, image_save:bool = False) -> dict:
         if isinstance(cat_ids, list) == False:
             cat_ids = [cat_ids]
         base_url = "https://search.shopping.naver.com/api/search/category"
@@ -162,8 +171,9 @@ class Crawl_Naver_Shopping():
             print(cat_level)
             initial_params = self.create_params(idx=1, page_size=40, cat_id=cat_id)
 
-            fake_user_agent = generate_user_agent(os=('mac', 'linux'), device_type='desktop')
-            initial_rq = requests.get(base_url, params = initial_params, headers = {"User-Agent": fake_user_agent})
+            headers = self.create_headers(url = base_url)
+
+            initial_rq = requests.get(base_url, params = initial_params, headers = headers)
 
             initial_rq_json = initial_rq.json()
 
@@ -178,8 +188,9 @@ class Crawl_Naver_Shopping():
             for pg in tqdm(range(1, max_page+1)):
                 # time.sleep(1)
                 params = self.create_params(idx=pg, page_size=80, cat_id=cat_id)
-                fake_user_agent = generate_user_agent(os=('mac', 'linux'), device_type='desktop')
-                rq = requests.get(base_url, params = params, headers = {"User-Agent": fake_user_agent})
+
+                headers = self.create_headers(url = base_url)
+                rq = requests.get(base_url, params = params, headers = headers)
                 rq_json = rq.json()
 
                 if pg < max_page:
@@ -200,3 +211,53 @@ class Crawl_Naver_Shopping():
                 total_product_infos = self.merge_dict(total_product_infos, products_infos)
         
         return total_product_infos
+
+    def get_product_infos_from_query(self, queries, collect_num = None, image_save:bool = False) -> dict:
+        if isinstance(queries, list) == False:
+            queries = [queries]
+
+        base_url = "https://search.shopping.naver.com/api/search/all"
+        total_product_infos = defaultdict(list)
+
+        for query in queries:
+            initial_params = self.create_params(idx=1, page_size=40, query=query)
+            headers = self.create_headers(url = base_url)
+
+            initial_rq = requests.get(base_url, params = initial_params, headers = headers)
+            initial_rq_json = initial_rq.json()
+
+            total_num = initial_rq_json["shoppingResult"]["total"]
+
+            if collect_num is None:
+                temp_collect_num = total_num
+            else:
+                temp_collect_num = min(collect_num, total_num)
+            max_page, remainder = self.get_max_page(collect_num = temp_collect_num, page_size = 80)
+
+            for pg in tqdm(range(1, max_page+1)):
+                
+                # time.sleep(1)
+                params = self.create_params(idx=pg, page_size=80, query=query)
+
+                headers = self.create_headers(url = base_url)
+                rq = requests.get(base_url, params = params, headers = headers)
+                rq_json = rq.json()
+                print(rq.url)
+                if pg < max_page:
+                    collect_num_in_page = None
+
+                else:
+                    collect_num_in_page = remainder
+
+                try:
+                    products_infos = self.extract_product_infos(rq_json, collect_num_in_page, image_save = image_save, img_dir = f"./images/{query}/")
+                except:
+                    print(rq.url)
+                    continue
+                # with open(f"crawl_pkl/{query}_{pg}.pkl", "wb") as f:
+
+                #     pickle.dump(products_infos, f)
+
+                total_product_infos = self.merge_dict(total_product_infos, products_infos)
+        
+        return total_product_infos                
