@@ -89,7 +89,7 @@ class Crawl_Naver_Shopping():
         return headers
         
 
-    def get_max_page(self, collect_num:int, page_size:int = 80) -> tuple(int):
+    def get_max_page(self, collect_num:int, page_size:int = 80) -> tuple[int]:
         """
         수집해야하는 데이터 건수(collect_num)를 page_size로 나누어 
         수집해야하는 페이지의 수 (max_page)와 마지막 page에서의 데이터 건수(remainder)를 산출하는 method.
@@ -198,7 +198,7 @@ class Crawl_Naver_Shopping():
         return self.concat_dict(product_attr_dict)
 
 
-    def save_images(self, img_urls:list(str), img_names:list(str), img_dir:str = "./image/"):
+    def save_images(self, img_urls:list, img_names:list, img_dir:str = "./image/"):
         """
         image를 저장하는 method.
 
