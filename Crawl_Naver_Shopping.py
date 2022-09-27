@@ -22,10 +22,10 @@ class Crawl_Naver_Shopping():
         elif list_type == "가격비교":
             self.productSet = "model"
 
-        self.proxies = {
-            "http": "socks5://127.0.0.1:9050",
-            "https": "socks5://127.0.0.1:9050"
-        }
+        # self.proxies = {
+        #     "http": "socks5://127.0.0.1:9050",
+        #     "https": "socks5://127.0.0.1:9050"
+        # }
 
         self.headers = {
             'authority': 'search.shopping.naver.com',
@@ -33,7 +33,29 @@ class Crawl_Naver_Shopping():
             'logic': 'PART'
         }
 
+
     def create_params(self, idx:int, page_size:int, **kwargs):
+        """
+        request.get에 들어갈 parameter들을 생성하는 method.
+        필수적인 parameter들 (idx, page_size)만 명시적으로 표시함.
+        
+        1) category로 수집하는 경우 (get_product_infos_in_category)
+          : cat_id가 **kwargs에 포함되어야 함.
+
+        2) query로 수집하는 경우 (get_product_infos_from_query)
+          : query가 **kwargs에 포함되어야 함.
+
+        Args:
+            idx: 페이지 번호
+            page_size: 한 페이지 내에서 보여주는 데이터 건수
+            **kwargs: 기타 다른 parameter
+
+        Returns:
+            params: parameters
+
+        Raises:
+            
+        """
         params = {"sort" : "rel",
                   "pagingIndex" : idx,
                   "pagingSize" : page_size,
@@ -45,15 +67,68 @@ class Crawl_Naver_Shopping():
         return params
 
 
-    def get_max_page(self, collect_num:int, page_size:int = 80):
-    
+    def create_headers(self, url: str) -> dict:
+        """
+        request.get에 들어갈 headers를 생성하는 method.
+        fake_user_agent를 생성하여 ip 차단을 우회한다.
+
+        Args:
+            url: 수집 url
+
+        Returns:
+            headers: 헤더
+
+        Raises:
+            
+        """         
+        headers = deepcopy(self.headers)
+        fake_user_agent = generate_user_agent(os=('mac', 'linux'), device_type='desktop')
+        headers["User-Agent"] = fake_user_agent
+        headers["referer"] = url
+
+        return headers
+        
+
+    def get_max_page(self, collect_num:int, page_size:int = 80) -> tuple(int, int):
+        """
+        수집해야하는 데이터 건수(collect_num)를 page_size로 나누어 
+        수집해야하는 페이지의 수 (max_page)와 마지막 page에서의 데이터 건수(remainder)를 산출하는 method.
+
+        Args:
+            collect_num: 수집 데이터 건수
+            page_size: 한 페이지 내에서 보여주는 데이터 건수
+
+        Returns:
+            max_page: 수집해야하는 페이지의 수
+            remainder: 마지막 page에서의 데이터 건수
+
+        Raises:
+            
+        """    
         max_page = min(int(np.ceil(collect_num / page_size)), 100)
         remainder = int(collect_num % page_size)
 
         return max_page, remainder
 
     
-    def merge_dict(self, org_dict:dict, new_dict:dict, type:str = "full"):
+    def merge_dict(self, org_dict:dict, new_dict:dict, type:str = "full") -> dict:
+        """
+        dict(list) 형태의 두 개의 dictionary들을 key에 맞춰 각 value값 (list)를 extend 하는 method.
+
+        모든 key를 다 활용할지 (full), org_dict에 있는 key만 활용할지 (left), new_dict에 있는 key만 활용할지(right)에 따라
+        type이 구분된다.
+
+        Args:
+            org_dict: 기존 dictionary
+            new_dict: 추가하는 dictionary
+            type: ["full", "left", "right"]
+
+        Returns:
+            merged_dict: 결합된 dictionary
+
+        Raises:
+            
+        """           
         merged_dict = deepcopy(org_dict)
         if type == "full":
             keys = pd.unique(list(org_dict.keys()) + list(new_dict.keys()))
@@ -71,7 +146,26 @@ class Crawl_Naver_Shopping():
         
         return merged_dict
 
+
     def concat_dict(self, input_dict:dict) -> str:
+        """
+        dictionary에 있는 item들을 concat하여 string으로 반환하는 method.
+
+        key 간에는 ' | '로 연결하고, 각 key내의 value(list)는 ', '로 연결한다.
+
+        e.g.) 
+        input : {"크기" : ["240 x 140 x 150"], "색상": ["빨강", "노랑", "검정", "화이트"]}
+        output : "크기 : 240 x 140 x 150 | 색상 : 빨강, 노랑, 검정, 화이트"
+
+        Args:
+            input_dict: concat 대상 dictionary
+
+        Returns:
+            string
+
+        Raises:
+            
+        """            
         temp = []
         for k, v in input_dict.items():
             v = [str(x) for x in v]
@@ -79,7 +173,24 @@ class Crawl_Naver_Shopping():
         return " | ".join(temp)
 
 
-    def create_productAttr(self, attr_val, char_val):
+    def create_productAttr(self, attr_val:list, char_val:list) -> dict:
+        """
+        제품 속성 Key와 Value 리스트를 기반으로 제품 속성값 string을 만드는 method.
+
+        e.g.) 
+        input : attr_val = ["크기", "색상"], char_val = [["240 x 140 x 150"], ["빨강", "노랑", "검정", "화이트"]]
+        "크기 : 240 x 140 x 150 | 색상 : 빨강, 노랑, 검정, 화이트"
+
+        Args:
+            attr_val: 제품 속성 Key 리스트
+            char_val: 제품 속성 Value 리스트
+
+        Returns:
+            string
+
+        Raises:
+            
+        """   
         product_attr_dict = defaultdict(list)
         for attr, char in zip(attr_val, char_val):     
             product_attr_dict[attr].append(char)
@@ -87,7 +198,20 @@ class Crawl_Naver_Shopping():
         return self.concat_dict(product_attr_dict)
 
 
-    def save_images(self, img_urls, img_names, img_dir = "./image/"):
+    def save_images(self, img_urls:list(str), img_names:list(str), img_dir:str = "./image/"):
+        """
+        image를 저장하는 method.
+
+        Args:
+            img_urls: 이미지 url 리스트 
+            img_names: 저장할 이미지 파일명 리스트
+            img_dir: 저장 경로
+
+        Returns:
+
+        Raises:
+            
+        """           
         if isinstance(img_urls, list) == False:
             img_urls = [img_urls]
         if isinstance(img_names, list) == False:
@@ -112,7 +236,30 @@ class Crawl_Naver_Shopping():
 
 
     def extract_product_infos(self, rq_json:dict, collect_num:int = None, image_save:bool = True, img_dir:str = "./image/") -> dict:
-    
+        """
+        request 결과 json으로 부터 product info를 dictionary 형태로 반환하는 method.
+
+        overSeaTp: 
+            0: 국내
+            1: 해외
+        
+        saleTp:
+            0: 일반
+            1: ??
+            2: 렌탈
+
+        Args:
+            rq_json: request 결과
+            collect_num: 수집해야하는 제품의 개수
+            image_save: 제품 이미지 저장 여부
+            img_dir: 제품 이미지 저장 경로
+
+        Returns:
+            products_dict: 제품 정보 dictionary
+
+        Raises:
+            
+        """ 
         products_dict = defaultdict(list)
         products = rq_json["shoppingResult"]["products"]
 
@@ -120,6 +267,7 @@ class Crawl_Naver_Shopping():
             collect_num = len(products)
 
         for i, product in enumerate(products):
+            # 수집해야하는 제품 개수를 초과하는 경우는 iteration 종료
             if i == collect_num:
                 break
 
@@ -127,7 +275,7 @@ class Crawl_Naver_Shopping():
                             "category1Id", "category2Id", "category3Id", "category4Id",
                             "category1Name", "category2Name", "category3Name", "category4Name",
                             "maker", "makerNo", "brand", "brandNo", "price", "priceUnit", "lnchYm", 
-                            "attributeValue", "characterValue", "crUrl", "imageUrl"]
+                            "attributeValue", "characterValue", "crUrl", "imageUrl", "overSeaTp", "saleTp"]
 
             for col in collect_cols:
                 products_dict[col].append(product[col])
@@ -151,16 +299,26 @@ class Crawl_Naver_Shopping():
         
         return products_dict
 
-    def create_headers(self, url):
-        headers = deepcopy(self.headers)
-        fake_user_agent = generate_user_agent(os=('mac', 'linux'), device_type='desktop')
-        headers["User-Agent"] = fake_user_agent
-        headers["referer"] = url
-        return headers
-        
+
 
 
     def get_product_infos_in_category(self, cat_ids:list, cat_levels:list, collect_num:int = None, image_save:bool = False) -> dict:
+        """
+        카테고리 내의 제품 정보를 수집하는 method.
+
+        Args:
+            cat_ids: 카테고리 id 리스트
+            cat_levels: 카테고리 level 리스트
+            collect_num: 수집하고자 하는 데이터 건수
+                         None -> 전체 수집
+            image_save: 제품 이미지 수집 여부
+
+        Returns:
+            total_product_infos: 제품 정보 데이터 dict
+
+        Raises:
+            
+        """          
         if isinstance(cat_ids, list) == False:
             cat_ids = [cat_ids]
         base_url = "https://search.shopping.naver.com/api/search/category"
@@ -169,14 +327,15 @@ class Crawl_Naver_Shopping():
         for cat_id, cat_level in zip(cat_ids, cat_levels):
             # time.sleep(5)
             print(cat_level)
+
+            # request의 parameter로 넣기 위한 params와 header를 생성
             initial_params = self.create_params(idx=1, page_size=40, cat_id=cat_id)
-
-            headers = self.create_headers(url = base_url)
-
-            initial_rq = requests.get(base_url, params = initial_params, headers = headers)
-
+            initial_headers = self.create_headers(url = base_url)
+            
+            initial_rq = requests.get(base_url, params = initial_params, headers = initial_headers)
             initial_rq_json = initial_rq.json()
 
+            # 전체 검색 결과 건수 산출
             total_num = initial_rq_json["shoppingResult"]["total"]
             
             if collect_num is None:
@@ -184,12 +343,15 @@ class Crawl_Naver_Shopping():
             else:
                 temp_collect_num = min(collect_num, total_num)
 
+            # 수집해야하는 page 수 (max_page)와 마지막 페이지에서 수집해야하는 데이터 건수 추출(remainder)
             max_page, remainder = self.get_max_page(collect_num = temp_collect_num, page_size = 80)
+
             for pg in tqdm(range(1, max_page+1)):
                 # time.sleep(1)
+                # request의 parameter로 넣기 위한 params와 header를 생성
                 params = self.create_params(idx=pg, page_size=80, cat_id=cat_id)
-
                 headers = self.create_headers(url = base_url)
+
                 rq = requests.get(base_url, params = params, headers = headers)
                 rq_json = rq.json()
 
@@ -206,13 +368,28 @@ class Crawl_Naver_Shopping():
                 except:
                     print(rq.url)
                     continue
-                with open(f"crawl_pkl/{cat_id}_{pg}.pkl", "wb") as f:
-                    pickle.dump(products_infos, f)
+
                 total_product_infos = self.merge_dict(total_product_infos, products_infos)
         
         return total_product_infos
 
+
     def get_product_infos_from_query(self, queries, collect_num = None, image_save:bool = False) -> dict:
+        """
+        query(검색어)를 보내서 제품 정보를 수집하는 method.
+
+        Args:
+            queries: 검색어 리스트
+            collect_num: 수집하고자 하는 데이터 건수
+                         None -> 전체 수집
+            image_save: 제품 이미지 수집 여부
+
+        Returns:
+            total_product_infos: 제품 정보 데이터 dict
+
+        Raises:
+            
+        """          
         if isinstance(queries, list) == False:
             queries = [queries]
 
@@ -220,29 +397,33 @@ class Crawl_Naver_Shopping():
         total_product_infos = defaultdict(list)
 
         for query in queries:
+            # request의 parameter로 넣기 위한 params와 header를 생성
             initial_params = self.create_params(idx=1, page_size=40, query=query)
-            headers = self.create_headers(url = base_url)
+            initial_headers = self.create_headers(url = base_url)
 
-            initial_rq = requests.get(base_url, params = initial_params, headers = headers)
+            initial_rq = requests.get(base_url, params = initial_params, headers = initial_headers)
             initial_rq_json = initial_rq.json()
 
+            # 전체 검색 결과 건수 산출
             total_num = initial_rq_json["shoppingResult"]["total"]
 
             if collect_num is None:
                 temp_collect_num = total_num
             else:
                 temp_collect_num = min(collect_num, total_num)
+
+            # 수집해야하는 page 수 (max_page)와 마지막 페이지에서 수집해야하는 데이터 건수 추출(remainder)
             max_page, remainder = self.get_max_page(collect_num = temp_collect_num, page_size = 80)
 
             for pg in tqdm(range(1, max_page+1)):
-                
                 # time.sleep(1)
+                # request의 parameter로 넣기 위한 params와 header를 생성
                 params = self.create_params(idx=pg, page_size=80, query=query)
-
                 headers = self.create_headers(url = base_url)
+
                 rq = requests.get(base_url, params = params, headers = headers)
                 rq_json = rq.json()
-                print(rq.url)
+
                 if pg < max_page:
                     collect_num_in_page = None
 
@@ -254,9 +435,6 @@ class Crawl_Naver_Shopping():
                 except:
                     print(rq.url)
                     continue
-                # with open(f"crawl_pkl/{query}_{pg}.pkl", "wb") as f:
-
-                #     pickle.dump(products_infos, f)
 
                 total_product_infos = self.merge_dict(total_product_infos, products_infos)
         
