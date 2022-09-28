@@ -275,7 +275,7 @@ class Crawl_Naver_Shopping():
                             "category1Id", "category2Id", "category3Id", "category4Id",
                             "category1Name", "category2Name", "category3Name", "category4Name",
                             "maker", "makerNo", "brand", "brandNo", "price", "priceUnit", "lnchYm", 
-                            "attributeValue", "characterValue", "crUrl", "imageUrl", "overSeaTp", "saleTp"]
+                            "attributeValue", "characterValue", "crUrl", "imageUrl"]
 
             for col in collect_cols:
                 products_dict[col].append(product[col])
@@ -402,6 +402,8 @@ class Crawl_Naver_Shopping():
             initial_headers = self.create_headers(url = base_url)
 
             initial_rq = requests.get(base_url, params = initial_params, headers = initial_headers)
+            self.query = query
+            self.initial_rq = initial_rq
             initial_rq_json = initial_rq.json()
 
             # 전체 검색 결과 건수 산출
@@ -432,7 +434,9 @@ class Crawl_Naver_Shopping():
 
                 try:
                     products_infos = self.extract_product_infos(rq_json, collect_num_in_page, image_save = image_save, img_dir = f"./images/{query}/")
-                except:
+                    products_infos["query"] = query
+                except Exception as e:
+                    print(e)
                     print(rq.url)
                     continue
 
