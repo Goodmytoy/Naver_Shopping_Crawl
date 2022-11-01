@@ -1,9 +1,11 @@
-import requests 
+import requests
+from requests.adapters import HTTPAdapter, Retry
 import os
 import re
 from collections import defaultdict
 from copy import deepcopy
 import pickle
+import random
 
 import pandas as pd
 import numpy as np
@@ -32,6 +34,12 @@ class Crawl_Naver_Shopping():
             'method': 'GET',
             'logic': 'PART'
         }
+
+        self.rs = requests.Session()
+        retries = Retry(total = 5,
+                        backoff_factor = 0.1,
+                        status_forcelist=[ 500, 502, 503, 504 ])
+        self.rs.mount('http://', HTTPAdapter(max_retries=retries))     
 
 
     def create_params(self, idx:int, page_size:int, **kwargs):
@@ -291,6 +299,16 @@ class Crawl_Naver_Shopping():
             char_val = product["characterValue"].split("|")
             attr_char = self.create_productAttr(attr_val, char_val)
             products_dict["productAttr"].append(attr_char)
+            
+            try:
+                # 모든 값의 길이가 동일한 지 check
+                value_length = [len(v) for k, v in products_dict.items()]
+                if (sum(value_length) / len(value_length)) != value_length[0]:
+                    raise
+            except:
+                print("속성의 길이가 다릅니다.")
+                for k, v in products_dict.items():
+                    print(f"key : {k}, length : {len(v)}")
 
             if image_save:
                 self.save_images(img_urls=product["imageUrl"], 
@@ -352,7 +370,7 @@ class Crawl_Naver_Shopping():
                 params = self.create_params(idx=pg, page_size=80, cat_id=cat_id)
                 headers = self.create_headers(url = base_url)
 
-                rq = requests.get(base_url, params = params, headers = headers)
+                rq = self.rs.get(base_url, params = params, headers = headers)
                 rq_json = rq.json()
 
                 if pg < max_page:
@@ -396,14 +414,17 @@ class Crawl_Naver_Shopping():
         base_url = "https://search.shopping.naver.com/api/search/all"
         total_product_infos = defaultdict(list)
 
-        for query in queries:
+        for i, query in enumerate(queries):
+            print(f"{i+1} : {query}")
+            time.sleep(random.random()*1.5)
             # request의 parameter로 넣기 위한 params와 header를 생성
             initial_params = self.create_params(idx=1, page_size=40, query=query)
-            initial_headers = self.create_headers(url = base_url)
+            initial_headers = self.create_headers(url = base_url)                       
 
-            initial_rq = requests.get(base_url, params = initial_params, headers = initial_headers)
+            initial_rq = self.rs.get(base_url, params = initial_params, headers = initial_headers)
             self.query = query
             self.initial_rq = initial_rq
+
             initial_rq_json = initial_rq.json()
 
             # 전체 검색 결과 건수 산출
@@ -418,7 +439,6 @@ class Crawl_Naver_Shopping():
             max_page, remainder = self.get_max_page(collect_num = temp_collect_num, page_size = 80)
 
             for pg in tqdm(range(1, max_page+1)):
-                # time.sleep(1)
                 # request의 parameter로 넣기 위한 params와 header를 생성
                 params = self.create_params(idx=pg, page_size=80, query=query)
                 headers = self.create_headers(url = base_url)
@@ -434,7 +454,7 @@ class Crawl_Naver_Shopping():
 
                 try:
                     products_infos = self.extract_product_infos(rq_json, collect_num_in_page, image_save = image_save, img_dir = f"./images/{query}/")
-                    products_infos["query"] = query
+                    products_infos["query"] = [query for _ in range(len(products_infos["id"]))]
                 except Exception as e:
                     print(e)
                     print(rq.url)
