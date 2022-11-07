@@ -4,17 +4,20 @@ import os
 import re
 from collections import defaultdict
 from copy import deepcopy
-import pickle
 import random
 
 import pandas as pd
 import numpy as np
 import time
 
-from bs4 import BeautifulSoup
 from tqdm import tqdm
 from user_agent import generate_user_agent, generate_navigator
+from random_proxy import *
+import pickle
 
+# proxy_server_list = random_proxy()
+# proxy_server = random.sample(proxy_server_list, 1)[0]
+# proxies = {"http": 'http://' + proxy_server, 'https': 'http://' + proxy_server}
 
 # overseaTp = "1" : 해외
 class Crawl_Naver_Shopping():
@@ -41,6 +44,7 @@ class Crawl_Naver_Shopping():
                         status_forcelist=[ 500, 502, 503, 504 ])
         self.rs.mount('http://', HTTPAdapter(max_retries=retries))     
 
+        self.proxy_server_list = random_proxy()
 
     def create_params(self, idx:int, page_size:int, **kwargs):
         """
@@ -233,9 +237,11 @@ class Crawl_Naver_Shopping():
 
         error_list = []
         for img_url, img_name in zip(img_urls, img_names):
+            proxy_server = random.sample(self.proxy_server_list, 1)[0]
+            proxies = {"http": 'http://' + proxy_server, 'https': 'http://' + proxy_server}            
             # image 저장
             try:
-                img_rq = requests.get(img_url, verify = True)
+                img_rq = requests.get(img_url, verify = True, proxies = proxies)
                 with open(f"{img_dir}/{img_name}", "wb") as f:
                     f.write(img_rq.content)
             except: 
@@ -320,7 +326,7 @@ class Crawl_Naver_Shopping():
 
 
 
-    def get_product_infos_in_category(self, cat_ids:list, cat_levels:list, collect_num:int = None, image_save:bool = False) -> dict:
+    def get_product_infos_in_category(self, cat_ids:list, cat_levels:list = None, collect_num:int = None, image_save:bool = False) -> dict:
         """
         카테고리 내의 제품 정보를 수집하는 method.
 
@@ -342,16 +348,27 @@ class Crawl_Naver_Shopping():
         base_url = "https://search.shopping.naver.com/api/search/category"
         total_product_infos = defaultdict(list)
 
-        for cat_id, cat_level in zip(cat_ids, cat_levels):
-            # time.sleep(5)
-            print(cat_level)
+        for i, cat_id in enumerate(cat_ids):
+            time.sleep(5)
+            print(i, end =  ", ")
+            if cat_levels is None:
+                print(cat_id)
+            else:
+                print(cat_levels[i])
 
             # request의 parameter로 넣기 위한 params와 header를 생성
             initial_params = self.create_params(idx=1, page_size=40, cat_id=cat_id)
             initial_headers = self.create_headers(url = base_url)
-            
-            initial_rq = requests.get(base_url, params = initial_params, headers = initial_headers)
-            initial_rq_json = initial_rq.json()
+
+            initial_proxy_server = random.sample(self.proxy_server_list, 1)[0]
+            initial_proxies = {"http": 'http://' + initial_proxy_server, 'https': 'http://' + initial_proxy_server} 
+            initial_proxies = None
+            initial_rq = requests.get(base_url, params = initial_params, headers = initial_headers, proxies = initial_proxies)
+            try:
+                initial_rq_json = initial_rq.json()
+            except:
+                print(initial_rq.text)
+                continue
 
             # 전체 검색 결과 건수 산출
             total_num = initial_rq_json["shoppingResult"]["total"]
@@ -365,12 +382,16 @@ class Crawl_Naver_Shopping():
             max_page, remainder = self.get_max_page(collect_num = temp_collect_num, page_size = 80)
 
             for pg in tqdm(range(1, max_page+1)):
-                # time.sleep(1)
+                time.sleep(0.5)
+
+                proxy_server = random.sample(self.proxy_server_list, 1)[0]
+                proxies = {"http": 'http://' + proxy_server, 'https': 'http://' + proxy_server}
+
                 # request의 parameter로 넣기 위한 params와 header를 생성
                 params = self.create_params(idx=pg, page_size=80, cat_id=cat_id)
                 headers = self.create_headers(url = base_url)
-
-                rq = self.rs.get(base_url, params = params, headers = headers)
+                proxies = None
+                rq = self.rs.get(base_url, params = params, headers = headers, proxies = proxies)
                 rq_json = rq.json()
 
                 if pg < max_page:
@@ -382,10 +403,14 @@ class Crawl_Naver_Shopping():
                 try:
                     products_infos = self.extract_product_infos(rq_json, collect_num_in_page, image_save = image_save, img_dir = f"./images/{cat_id}/")
                     products_infos["searchCategoryId"] = [cat_id for x in range(len(products_infos["id"]))]
-                    products_infos["searchCategoryName"] = [" > ".join(cat_level) for x in range(len(products_infos["id"]))]
+                    # products_infos["searchCategoryName"] = [" > ".join(cat_levels[i]) for x in range(len(products_infos["id"]))]
                 except:
                     print(rq.url)
                     continue
+                
+                with open(f"pickle/{cat_id}.pkl", "wb") as f:
+                    pickle.dump(products_infos, f)
+        
 
                 total_product_infos = self.merge_dict(total_product_infos, products_infos)
         
@@ -419,9 +444,12 @@ class Crawl_Naver_Shopping():
             time.sleep(random.random()*1.5)
             # request의 parameter로 넣기 위한 params와 header를 생성
             initial_params = self.create_params(idx=1, page_size=40, query=query)
-            initial_headers = self.create_headers(url = base_url)                       
-
-            initial_rq = self.rs.get(base_url, params = initial_params, headers = initial_headers)
+            initial_headers = self.create_headers(url = base_url)
+            
+            initial_proxy_server = random.sample(self.proxy_server_list, 1)[0]
+            initial_proxies = {"http": 'http://' + initial_proxy_server, 'https': 'http://' + initial_proxy_server} 
+            initial_proxies = None
+            initial_rq = self.rs.get(base_url, params = initial_params, headers = initial_headers, proxies = initial_proxies)
             self.query = query
             self.initial_rq = initial_rq
 
@@ -443,7 +471,10 @@ class Crawl_Naver_Shopping():
                 params = self.create_params(idx=pg, page_size=80, query=query)
                 headers = self.create_headers(url = base_url)
 
-                rq = requests.get(base_url, params = params, headers = headers)
+                proxy_server = random.sample(self.proxy_server_list, 1)[0]
+                proxies = {"http": 'http://' + proxy_server, 'https': 'http://' + proxy_server}
+                proxies = None
+                rq = requests.get(base_url, params = params, headers = headers, proxies = proxies)
                 rq_json = rq.json()
 
                 if pg < max_page:

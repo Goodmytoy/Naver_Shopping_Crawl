@@ -134,4 +134,6 @@ dmypy.json
 *.exe
 *.zip
 *.parquet
+*.pkl
 *.pickle
+
