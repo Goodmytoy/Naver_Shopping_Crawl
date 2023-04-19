@@ -5,6 +5,7 @@ import re
 from collections import defaultdict
 from copy import deepcopy
 import random
+import pickle
 
 import pandas as pd
 import numpy as np
@@ -12,12 +13,7 @@ import time
 
 from tqdm import tqdm
 from user_agent import generate_user_agent, generate_navigator
-from random_proxy import *
-import pickle
 
-# proxy_server_list = random_proxy()
-# proxy_server = random.sample(proxy_server_list, 1)[0]
-# proxies = {"http": 'http://' + proxy_server, 'https': 'http://' + proxy_server}
 
 # overseaTp = "1" : 해외
 class Crawl_Naver_Shopping():
@@ -27,10 +23,6 @@ class Crawl_Naver_Shopping():
         elif list_type == "가격비교":
             self.productSet = "model"
 
-        # self.proxies = {
-        #     "http": "socks5://127.0.0.1:9050",
-        #     "https": "socks5://127.0.0.1:9050"
-        # }
 
         self.headers = {
             'authority': 'search.shopping.naver.com',
@@ -43,8 +35,6 @@ class Crawl_Naver_Shopping():
                         backoff_factor = 0.1,
                         status_forcelist=[ 500, 502, 503, 504 ])
         self.rs.mount('http://', HTTPAdapter(max_retries=retries))     
-
-        self.proxy_server_list = random_proxy()
 
     def create_params(self, idx:int, page_size:int, **kwargs):
         """
@@ -68,7 +58,7 @@ class Crawl_Naver_Shopping():
         Raises:
             
         """
-        params = {"sort" : "rel",
+        params = {"sort" : "rel", # date
                   "pagingIndex" : idx,
                   "pagingSize" : page_size,
                   "viewType" : "list",
@@ -236,12 +226,10 @@ class Crawl_Naver_Shopping():
             os.makedirs(img_dir)
 
         error_list = []
-        for img_url, img_name in zip(img_urls, img_names):
-            proxy_server = random.sample(self.proxy_server_list, 1)[0]
-            proxies = {"http": 'http://' + proxy_server, 'https': 'http://' + proxy_server}            
+        for img_url, img_name in zip(img_urls, img_names):       
             # image 저장
             try:
-                img_rq = requests.get(img_url, verify = True, proxies = proxies)
+                img_rq = requests.get(img_url, verify = True)
                 with open(f"{img_dir}/{img_name}", "wb") as f:
                     f.write(img_rq.content)
             except: 
@@ -249,7 +237,7 @@ class Crawl_Naver_Shopping():
                 print(img_name)
 
 
-    def extract_product_infos(self, rq_json:dict, collect_num:int = None, image_save:bool = True, img_dir:str = "./image/") -> dict:
+    def extract_product_infos(self, rq_json:dict, start_date:str = None, collect_num:int = None, image_save:bool = True, img_dir:str = "./image/") -> dict:
         """
         request 결과 json으로 부터 product info를 dictionary 형태로 반환하는 method.
 
@@ -276,14 +264,25 @@ class Crawl_Naver_Shopping():
         """ 
         products_dict = defaultdict(list)
         products = rq_json["shoppingResult"]["products"]
+        continue_flag = True
 
         if collect_num is None:
             collect_num = len(products)
+
+
 
         for i, product in enumerate(products):
             # 수집해야하는 제품 개수를 초과하는 경우는 iteration 종료
             if i == collect_num:
                 break
+        
+            if start_date is not None:
+                if len(product["lnchYm"]) == 8:
+                    if product["lnchYm"] < start_date:
+                        continue_flag = False
+                        break
+
+
 
             collect_cols = ["rank", "id", "scoreInfo", "productName", "overseaTp", "saleTp",
                             "category1Id", "category2Id", "category3Id", "category4Id",
@@ -321,12 +320,12 @@ class Crawl_Naver_Shopping():
                             img_names=product["imageUrl"].split("/")[-1],
                             img_dir = img_dir)
         
-        return products_dict
+        return products_dict, continue_flag
 
 
 
 
-    def get_product_infos_in_category(self, cat_ids:list, cat_levels:list = None, collect_num:int = None, image_save:bool = False) -> dict:
+    def get_product_infos_in_category(self, cat_ids:list, start_date:str = None, cat_levels:list = None, collect_num:int = None, image_save:bool = False) -> dict:
         """
         카테고리 내의 제품 정보를 수집하는 method.
 
@@ -348,6 +347,10 @@ class Crawl_Naver_Shopping():
         base_url = "https://search.shopping.naver.com/api/search/category"
         total_product_infos = defaultdict(list)
 
+        sort = "rel"
+        if start_date is not None:
+            sort = "date"
+
         for i, cat_id in enumerate(cat_ids):
             time.sleep(5)
             print(i, end =  ", ")
@@ -357,13 +360,11 @@ class Crawl_Naver_Shopping():
                 print(cat_levels[i])
 
             # request의 parameter로 넣기 위한 params와 header를 생성
-            initial_params = self.create_params(idx=1, page_size=40, cat_id=cat_id)
+            initial_params = self.create_params(idx=1, page_size=40, cat_id=cat_id, sort = sort)
             initial_headers = self.create_headers(url = base_url)
 
-            initial_proxy_server = random.sample(self.proxy_server_list, 1)[0]
-            initial_proxies = {"http": 'http://' + initial_proxy_server, 'https': 'http://' + initial_proxy_server} 
-            initial_proxies = None
-            initial_rq = requests.get(base_url, params = initial_params, headers = initial_headers, proxies = initial_proxies)
+            initial_rq = requests.get(base_url, params = initial_params, headers = initial_headers)
+            self.initial_rq = initial_rq
             try:
                 initial_rq_json = initial_rq.json()
             except:
@@ -371,6 +372,8 @@ class Crawl_Naver_Shopping():
                 continue
 
             # 전체 검색 결과 건수 산출
+            self.initial_rq_json = initial_rq_json
+            self.initial_rq_url = initial_rq.url
             total_num = initial_rq_json["shoppingResult"]["total"]
             
             if collect_num is None:
@@ -384,14 +387,10 @@ class Crawl_Naver_Shopping():
             for pg in tqdm(range(1, max_page+1)):
                 time.sleep(0.5)
 
-                proxy_server = random.sample(self.proxy_server_list, 1)[0]
-                proxies = {"http": 'http://' + proxy_server, 'https': 'http://' + proxy_server}
-
                 # request의 parameter로 넣기 위한 params와 header를 생성
-                params = self.create_params(idx=pg, page_size=80, cat_id=cat_id)
+                params = self.create_params(idx=pg, page_size=80, cat_id=cat_id, sort = sort)
                 headers = self.create_headers(url = base_url)
-                proxies = None
-                rq = self.rs.get(base_url, params = params, headers = headers, proxies = proxies)
+                rq = self.rs.get(base_url, params = params, headers = headers)
                 rq_json = rq.json()
 
                 if pg < max_page:
@@ -401,18 +400,22 @@ class Crawl_Naver_Shopping():
                     collect_num_in_page = remainder
 
                 try:
-                    products_infos = self.extract_product_infos(rq_json, collect_num_in_page, image_save = image_save, img_dir = f"./images/{cat_id}/")
+                    products_infos, continue_flag = self.extract_product_infos(rq_json = rq_json, collect_num = collect_num_in_page, image_save = image_save, img_dir = f"./images/{cat_id}/", start_date = start_date)
                     products_infos["searchCategoryId"] = [cat_id for x in range(len(products_infos["id"]))]
                     # products_infos["searchCategoryName"] = [" > ".join(cat_levels[i]) for x in range(len(products_infos["id"]))]
-                except:
+                except Exception as e:
+                    print(e)
                     print(rq.url)
                     continue
-                
-                with open(f"pickle/{cat_id}.pkl", "wb") as f:
-                    pickle.dump(products_infos, f)
-        
 
                 total_product_infos = self.merge_dict(total_product_infos, products_infos)
+
+                if continue_flag == False:
+                    break
+
+                with open(f"pickle/{cat_id}_{pg}.pkl", "wb") as f:
+                    pickle.dump(products_infos, f)
+
         
         return total_product_infos
 
@@ -445,11 +448,8 @@ class Crawl_Naver_Shopping():
             # request의 parameter로 넣기 위한 params와 header를 생성
             initial_params = self.create_params(idx=1, page_size=40, query=query)
             initial_headers = self.create_headers(url = base_url)
-            
-            initial_proxy_server = random.sample(self.proxy_server_list, 1)[0]
-            initial_proxies = {"http": 'http://' + initial_proxy_server, 'https': 'http://' + initial_proxy_server} 
-            initial_proxies = None
-            initial_rq = self.rs.get(base_url, params = initial_params, headers = initial_headers, proxies = initial_proxies)
+
+            initial_rq = self.rs.get(base_url, params = initial_params, headers = initial_headers)
             self.query = query
             self.initial_rq = initial_rq
 
@@ -471,10 +471,7 @@ class Crawl_Naver_Shopping():
                 params = self.create_params(idx=pg, page_size=80, query=query)
                 headers = self.create_headers(url = base_url)
 
-                proxy_server = random.sample(self.proxy_server_list, 1)[0]
-                proxies = {"http": 'http://' + proxy_server, 'https': 'http://' + proxy_server}
-                proxies = None
-                rq = requests.get(base_url, params = params, headers = headers, proxies = proxies)
+                rq = requests.get(base_url, params = params, headers = headers)
                 rq_json = rq.json()
 
                 if pg < max_page:
@@ -484,7 +481,7 @@ class Crawl_Naver_Shopping():
                     collect_num_in_page = remainder
 
                 try:
-                    products_infos = self.extract_product_infos(rq_json, collect_num_in_page, image_save = image_save, img_dir = f"./images/{query}/")
+                    products_infos, _ = self.extract_product_infos(rq_json, collect_num_in_page, image_save = image_save, img_dir = f"./images/{query}/")
                     products_infos["query"] = [query for _ in range(len(products_infos["id"]))]
                 except Exception as e:
                     print(e)
