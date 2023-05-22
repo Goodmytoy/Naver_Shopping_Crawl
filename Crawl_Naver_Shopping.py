@@ -17,7 +17,9 @@ from user_agent import generate_user_agent, generate_navigator
 
 # overseaTp = "1" : 해외
 class Crawl_Naver_Shopping():
-    def __init__(self, list_type:str = "전체"):
+    def __init__(self, list_type:str = "전체", verify = True):
+        self.verify = verify
+
         if list_type == "전체":
             self.productSet = "total"
         elif list_type == "가격비교":
@@ -27,7 +29,8 @@ class Crawl_Naver_Shopping():
         self.headers = {
             'authority': 'search.shopping.naver.com',
             'method': 'GET',
-            'logic': 'PART'
+            'logic': 'PART',
+            "sbth" : 'e5160b449cd3c4435248b62e71dbd7742eaa1a7c688f3aa66a3c6479658a693b72977671812e53148fdbdd5877467196'
         }
 
         self.rs = requests.Session()
@@ -86,7 +89,7 @@ class Crawl_Naver_Shopping():
         headers = deepcopy(self.headers)
         fake_user_agent = generate_user_agent(os=('mac', 'linux'), device_type='desktop')
         headers["User-Agent"] = fake_user_agent
-        headers["referer"] = url
+        headers["Referer"] = url
 
         return headers
         
@@ -229,12 +232,13 @@ class Crawl_Naver_Shopping():
         for img_url, img_name in zip(img_urls, img_names):       
             # image 저장
             try:
-                img_rq = requests.get(img_url, verify = True)
+                img_rq = requests.get(img_url, verify = self.verify)
                 with open(f"{img_dir}/{img_name}", "wb") as f:
                     f.write(img_rq.content)
-            except: 
+            except Exception as e: 
                 error_list.append(img_name)
-                print(img_name)
+                print(e)
+                print(f"Image Save Error : {img_name}")
 
 
     def extract_product_infos(self, rq_json:dict, start_date:str = None, collect_num:int = None, image_save:bool = True, img_dir:str = "./image/") -> dict:
@@ -270,12 +274,12 @@ class Crawl_Naver_Shopping():
             collect_num = len(products)
 
 
-
+        
         for i, product in enumerate(products):
             # 수집해야하는 제품 개수를 초과하는 경우는 iteration 종료
             if i == collect_num:
                 break
-        
+
             if start_date is not None:
                 if len(product["lnchYm"]) == 8:
                     if product["lnchYm"] < start_date:
@@ -283,11 +287,11 @@ class Crawl_Naver_Shopping():
                         break
 
 
-
             collect_cols = ["rank", "id", "scoreInfo", "productName", "overseaTp", "saleTp",
                             "category1Id", "category2Id", "category3Id", "category4Id",
                             "category1Name", "category2Name", "category3Name", "category4Name",
                             "maker", "makerNo", "brand", "brandNo", "price", "priceUnit", "lnchYm", 
+                            "lowMallList",
                             "attributeValue", "characterValue", "crUrl", "imageUrl"]
 
             for col in collect_cols:
@@ -297,8 +301,8 @@ class Crawl_Naver_Shopping():
                 products_dict["imageName"].append(product["imageUrl"].split("/")[-1])
             except:
                 print(product["imageUrl"])
-                
             
+
 
             attr_val = re.sub(r"_[A-Z]{1}","",product["attributeValue"]).split("|")
             char_val = product["characterValue"].split("|")
@@ -317,8 +321,8 @@ class Crawl_Naver_Shopping():
 
             if image_save:
                 self.save_images(img_urls=product["imageUrl"], 
-                            img_names=product["imageUrl"].split("/")[-1],
-                            img_dir = img_dir)
+                                 img_names=product["imageUrl"].split("/")[-1],
+                                 img_dir = img_dir)
         
         return products_dict, continue_flag
 
@@ -363,7 +367,7 @@ class Crawl_Naver_Shopping():
             initial_params = self.create_params(idx=1, page_size=40, cat_id=cat_id, sort = sort)
             initial_headers = self.create_headers(url = base_url)
 
-            initial_rq = requests.get(base_url, params = initial_params, headers = initial_headers)
+            initial_rq = requests.get(base_url, params = initial_params, headers = initial_headers, verify = self.verify)
             self.initial_rq = initial_rq
             try:
                 initial_rq_json = initial_rq.json()
@@ -390,7 +394,7 @@ class Crawl_Naver_Shopping():
                 # request의 parameter로 넣기 위한 params와 header를 생성
                 params = self.create_params(idx=pg, page_size=80, cat_id=cat_id, sort = sort)
                 headers = self.create_headers(url = base_url)
-                rq = self.rs.get(base_url, params = params, headers = headers)
+                rq = self.rs.get(base_url, params = params, headers = headers, verify = self.verify)
                 rq_json = rq.json()
 
                 if pg < max_page:
@@ -400,7 +404,11 @@ class Crawl_Naver_Shopping():
                     collect_num_in_page = remainder
 
                 try:
-                    products_infos, continue_flag = self.extract_product_infos(rq_json = rq_json, collect_num = collect_num_in_page, image_save = image_save, img_dir = f"./images/{cat_id}/", start_date = start_date)
+                    products_infos, continue_flag = self.extract_product_infos(rq_json = rq_json, 
+                                                                               collect_num = collect_num_in_page, 
+                                                                               image_save = image_save, 
+                                                                               img_dir = f"./images/{cat_id}/", 
+                                                                               start_date = start_date)
                     products_infos["searchCategoryId"] = [cat_id for x in range(len(products_infos["id"]))]
                     # products_infos["searchCategoryName"] = [" > ".join(cat_levels[i]) for x in range(len(products_infos["id"]))]
                 except Exception as e:
@@ -449,7 +457,7 @@ class Crawl_Naver_Shopping():
             initial_params = self.create_params(idx=1, page_size=40, query=query)
             initial_headers = self.create_headers(url = base_url)
 
-            initial_rq = self.rs.get(base_url, params = initial_params, headers = initial_headers)
+            initial_rq = self.rs.get(base_url, params = initial_params, headers = initial_headers, verify = self.verify)
             self.query = query
             self.initial_rq = initial_rq
 
@@ -471,7 +479,7 @@ class Crawl_Naver_Shopping():
                 params = self.create_params(idx=pg, page_size=80, query=query)
                 headers = self.create_headers(url = base_url)
 
-                rq = requests.get(base_url, params = params, headers = headers)
+                rq = requests.get(base_url, params = params, headers = headers, verify = self.verify)
                 rq_json = rq.json()
 
                 if pg < max_page:
@@ -481,7 +489,11 @@ class Crawl_Naver_Shopping():
                     collect_num_in_page = remainder
 
                 try:
-                    products_infos, _ = self.extract_product_infos(rq_json, collect_num_in_page, image_save = image_save, img_dir = f"./images/{query}/")
+                    products_infos, _ = self.extract_product_infos(rq_json = rq_json, 
+                                                                   collect_num = collect_num_in_page, 
+                                                                   image_save = image_save, 
+                                                                   img_dir = f"./images/{query}/")
+
                     products_infos["query"] = [query for _ in range(len(products_infos["id"]))]
                 except Exception as e:
                     print(e)
@@ -490,4 +502,4 @@ class Crawl_Naver_Shopping():
 
                 total_product_infos = self.merge_dict(total_product_infos, products_infos)
         
-        return total_product_infos                
+        return total_product_infos
