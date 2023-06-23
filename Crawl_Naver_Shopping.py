@@ -232,7 +232,7 @@ class Crawl_Naver_Shopping():
         for img_url, img_name in zip(img_urls, img_names):       
             # image 저장
             try:
-                img_rq = requests.get(img_url, verify = self.verify)
+                img_rq = requests.get(img_url, verify = True)
                 with open(f"{img_dir}/{img_name}", "wb") as f:
                     f.write(img_rq.content)
             except Exception as e: 
@@ -367,7 +367,7 @@ class Crawl_Naver_Shopping():
             initial_params = self.create_params(idx=1, page_size=40, cat_id=cat_id, sort = sort)
             initial_headers = self.create_headers(url = base_url)
 
-            initial_rq = requests.get(base_url, params = initial_params, headers = initial_headers, verify = self.verify)
+            initial_rq = requests.get(base_url, params = initial_params, headers = initial_headers)
             self.initial_rq = initial_rq
             try:
                 initial_rq_json = initial_rq.json()
@@ -394,7 +394,7 @@ class Crawl_Naver_Shopping():
                 # request의 parameter로 넣기 위한 params와 header를 생성
                 params = self.create_params(idx=pg, page_size=80, cat_id=cat_id, sort = sort)
                 headers = self.create_headers(url = base_url)
-                rq = self.rs.get(base_url, params = params, headers = headers, verify = self.verify)
+                rq = self.rs.get(base_url, params = params, headers = headers)
                 rq_json = rq.json()
 
                 if pg < max_page:
@@ -428,7 +428,7 @@ class Crawl_Naver_Shopping():
         return total_product_infos
 
 
-    def get_product_infos_from_query(self, queries, collect_num = None, image_save:bool = False) -> dict:
+    def get_product_infos_from_query(self, queries, collect_num = None, image_save:bool = False, temp_product_ids = None) -> dict:
         """
         query(검색어)를 보내서 제품 정보를 수집하는 method.
 
@@ -447,6 +447,9 @@ class Crawl_Naver_Shopping():
         if isinstance(queries, list) == False:
             queries = [queries]
 
+        if temp_product_ids is None:
+            temp_product_ids = []
+
         base_url = "https://search.shopping.naver.com/api/search/all"
         total_product_infos = defaultdict(list)
 
@@ -457,7 +460,7 @@ class Crawl_Naver_Shopping():
             initial_params = self.create_params(idx=1, page_size=40, query=query)
             initial_headers = self.create_headers(url = base_url)
 
-            initial_rq = self.rs.get(base_url, params = initial_params, headers = initial_headers, verify = self.verify)
+            initial_rq = self.rs.get(base_url, params = initial_params, headers = initial_headers)
             self.query = query
             self.initial_rq = initial_rq
 
@@ -479,7 +482,7 @@ class Crawl_Naver_Shopping():
                 params = self.create_params(idx=pg, page_size=80, query=query)
                 headers = self.create_headers(url = base_url)
 
-                rq = requests.get(base_url, params = params, headers = headers, verify = self.verify)
+                rq = requests.get(base_url, params = params, headers = headers)
                 rq_json = rq.json()
 
                 if pg < max_page:
@@ -495,6 +498,8 @@ class Crawl_Naver_Shopping():
                                                                    img_dir = f"./images/{query}/")
 
                     products_infos["query"] = [query for _ in range(len(products_infos["id"]))]
+
+                    products_infos["temp_product_id"] = [temp_product_ids[i] for _ in range(len(products_infos["id"]))]
                 except Exception as e:
                     print(e)
                     print(rq.url)
