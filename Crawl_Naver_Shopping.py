@@ -30,7 +30,7 @@ class Crawl_Naver_Shopping():
             'authority': 'search.shopping.naver.com',
             'method': 'GET',
             'logic': 'PART',
-            "sbth" : 'e5160b449cd3c4435248b62e71dbd7742eaa1a7c688f3aa66a3c6479658a693b72977671812e53148fdbdd5877467196'
+            "sbth" : 'a3dc4411455cb04d54463960fc7f7406e1e0acc1949f74e0010cbc1de82e77d6407ab302ab68d51773e8f0b643e88d5e'
         }
 
         self.rs = requests.Session()
@@ -232,7 +232,7 @@ class Crawl_Naver_Shopping():
         for img_url, img_name in zip(img_urls, img_names):       
             # image 저장
             try:
-                img_rq = requests.get(img_url, verify = True)
+                img_rq = requests.get(img_url, verify = False)
                 with open(f"{img_dir}/{img_name}", "wb") as f:
                     f.write(img_rq.content)
             except Exception as e: 
@@ -367,7 +367,7 @@ class Crawl_Naver_Shopping():
             initial_params = self.create_params(idx=1, page_size=40, cat_id=cat_id, sort = sort)
             initial_headers = self.create_headers(url = base_url)
 
-            initial_rq = requests.get(base_url, params = initial_params, headers = initial_headers)
+            initial_rq = requests.get(base_url, params = initial_params, headers = initial_headers, verify = False)
             self.initial_rq = initial_rq
             try:
                 initial_rq_json = initial_rq.json()
@@ -394,7 +394,7 @@ class Crawl_Naver_Shopping():
                 # request의 parameter로 넣기 위한 params와 header를 생성
                 params = self.create_params(idx=pg, page_size=80, cat_id=cat_id, sort = sort)
                 headers = self.create_headers(url = base_url)
-                rq = self.rs.get(base_url, params = params, headers = headers)
+                rq = self.rs.get(base_url, params = params, headers = headers, verify = False)
                 rq_json = rq.json()
 
                 if pg < max_page:
@@ -460,7 +460,7 @@ class Crawl_Naver_Shopping():
             initial_params = self.create_params(idx=1, page_size=40, query=query)
             initial_headers = self.create_headers(url = base_url)
 
-            initial_rq = self.rs.get(base_url, params = initial_params, headers = initial_headers)
+            initial_rq = self.rs.get(base_url, params = initial_params, headers = initial_headers, verify = False)
             self.query = query
             self.initial_rq = initial_rq
 
@@ -482,7 +482,7 @@ class Crawl_Naver_Shopping():
                 params = self.create_params(idx=pg, page_size=80, query=query)
                 headers = self.create_headers(url = base_url)
 
-                rq = requests.get(base_url, params = params, headers = headers)
+                rq = requests.get(base_url, params = params, headers = headers, verify = False)
                 rq_json = rq.json()
 
                 if pg < max_page:
