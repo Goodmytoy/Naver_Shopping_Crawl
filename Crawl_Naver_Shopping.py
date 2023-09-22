@@ -3,7 +3,9 @@ from requests.adapters import HTTPAdapter, Retry
 import os
 import re
 from collections import defaultdict
+from datetime import datetime
 from copy import deepcopy
+import pytz
 import random
 import pickle
 
@@ -11,9 +13,13 @@ import pandas as pd
 import numpy as np
 import time
 
+from lxml import etree
+import urllib3
+
 from tqdm import tqdm
 from user_agent import generate_user_agent, generate_navigator
 
+urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 # overseaTp = "1" : 해외
 class Crawl_Naver_Shopping():
@@ -134,7 +140,7 @@ class Crawl_Naver_Shopping():
         Raises:
             
         """           
-        merged_dict = deepcopy(org_dict)
+        merged_dict = org_dict
         if type == "full":
             keys = pd.unique(list(org_dict.keys()) + list(new_dict.keys()))
         elif type == "left":
@@ -266,6 +272,8 @@ class Crawl_Naver_Shopping():
         Raises:
             
         """ 
+        today = datetime.now(pytz.timezone("Asia/Seoul")).strftime("%y.%m.%d")
+
         products_dict = defaultdict(list)
         products = rq_json["shoppingResult"]["products"]
         continue_flag = True
@@ -297,17 +305,28 @@ class Crawl_Naver_Shopping():
             for col in collect_cols:
                 products_dict[col].append(product[col])
 
+
+            # 이미지명
             try: 
                 products_dict["imageName"].append(product["imageUrl"].split("/")[-1])
             except:
                 print(product["imageUrl"])
-            
-
 
             attr_val = re.sub(r"_[A-Z]{1}","",product["attributeValue"]).split("|")
             char_val = product["characterValue"].split("|")
             attr_char = self.create_productAttr(attr_val, char_val)
+
+            if product.get("lowMallList") is not None:
+                price_list = [int(mall_info.get("price")) for mall_info in product["lowMallList"]]
+                attr_char += " | " + f"가격 : {min(price_list):,} ~ {max(price_list):,} ({today} 기준)"
+                products_dict["price_list"].append(price_list)
+            else:
+                products_dict["price_list"].append(None)
+            
             products_dict["productAttr"].append(attr_char)
+            
+
+
             
             try:
                 # 모든 값의 길이가 동일한 지 check
@@ -351,8 +370,12 @@ class Crawl_Naver_Shopping():
         base_url = "https://search.shopping.naver.com/api/search/category"
         total_product_infos = defaultdict(list)
 
+        today = datetime.now(pytz.timezone("Asia/Seoul")).strftime("%Y%m%d")
+        if os.path.exists(f"./pickle/{today}") == False:
+            os.makedirs(f"./pickle/{today}")
+
         sort = "rel"
-        if start_date is not None:
+        if (start_date is not None):
             sort = "date"
 
         for i, cat_id in enumerate(cat_ids):
@@ -362,6 +385,14 @@ class Crawl_Naver_Shopping():
                 print(cat_id)
             else:
                 print(cat_levels[i])
+
+            if cat_levels[i].split(">")[2] == "":
+                temp_cat_levels_list = cat_levels[i].split(">")
+                temp_cat_levels_list[2] = temp_cat_levels_list[1]
+                # print(temp_cat_levels_list)
+                temp_cat_levels = ">".join(temp_cat_levels_list)
+            else:
+                temp_cat_levels = cat_levels[i]
 
             # request의 parameter로 넣기 위한 params와 header를 생성
             initial_params = self.create_params(idx=1, page_size=40, cat_id=cat_id, sort = sort)
@@ -387,7 +418,7 @@ class Crawl_Naver_Shopping():
 
             # 수집해야하는 page 수 (max_page)와 마지막 페이지에서 수집해야하는 데이터 건수 추출(remainder)
             max_page, remainder = self.get_max_page(collect_num = temp_collect_num, page_size = 80)
-
+            
             for pg in tqdm(range(1, max_page+1)):
                 time.sleep(0.5)
 
@@ -421,7 +452,7 @@ class Crawl_Naver_Shopping():
                 if continue_flag == False:
                     break
 
-                with open(f"pickle/{cat_id}_{pg}.pkl", "wb") as f:
+                with open(f"./pickle/{today}/{cat_id}_{pg}.pkl", "wb") as f:
                     pickle.dump(products_infos, f)
 
         
@@ -508,3 +539,10 @@ class Crawl_Naver_Shopping():
                 total_product_infos = self.merge_dict(total_product_infos, products_infos)
         
         return total_product_infos
+    
+
+if __name__ == "__main__":
+    category_df = pd.read_excel("수집_대상_카테고리.xlsx")
+    category_df["cat_levels"] = category_df["category1"].fillna("") + ">" +  category_df["category2"].fillna("") + ">" + category_df["category3"].fillna("") + ">" + category_df["category4"].fillna("")
+    crawl = Crawl_Naver_Shopping(list_type="가격비교")
+    crawl_result = crawl.get_product_infos_in_category(cat_ids = category_df["category_id"].to_list(), cat_levels = category_df["cat_levels"].to_list())
